@@ -1,0 +1,205 @@
+# Joshua Carbajal
+# 5/5/2021
+# Modeling Mini-Project Part 4
+# Purpose: Basic Solar Array Power Output Calculator with advanced modelling
+
+import math
+import csv
+from matplotlib import pyplot as plt
+
+# Constants
+solarConstant = 1367
+delta0 = 23.45
+solarNoon = 12
+
+#--------main-------
+
+# import and read csv file
+filename = 'crownpoint_tmy.csv'
+with open(filename) as f:
+    reader = csv.reader(f)
+    next(reader)
+    next(reader)
+    header_row = next(reader)
+
+    # Append hourly GHI, ambient temperature and surface albedo to lists
+    # from csv file
+    hourly_GHI, amb_Temp, surf_Albedo = [], [], []
+    for row in reader:
+        ghi = int(row[7])
+        hourly_GHI.append(ghi)
+        temp = float(row[9])
+        amb_Temp.append(temp)
+        albedo = float(row[13])
+        surf_Albedo.append(albedo)
+    
+# Ask user for input for various parameters
+phi = input('location latitude: ')
+phi = float(phi)
+lambdaLong = input('location longitude: ')
+lambdaLong = float(lambdaLong)
+beta = input('PV array tilt: ')
+beta = int(beta)
+timezoneUTC = input('time zone in reference to UTC: ')
+timezoneUTC = int(timezoneUTC)
+modNOCT = input('module NOCT(celsius): ')
+modNOCT = float(modNOCT)
+modPwrR = input('module power rating(W,STC): ')
+modPwrR = float(modPwrR)
+pwrCoeff = input('module power coefficient(%/C): ')
+pwrCoeff = float(pwrCoeff)
+numPVmodules = input('number of PV modules per string: ')
+numPVmodules = int(numPVmodules)
+numStrings = input('number of strings: ')
+numStrings = int(numStrings)
+print()
+
+# Capacity Factor = E actual / E theory
+# E actual, actual energy produced over H hours (kWh)
+# E theory, maximum theoretical energy produced over H hours (kWh)
+# Calculation for theoretical maximum annual energy production
+E_theory = (255/1000.0)*numPVmodules*numStrings*8760
+
+count = 0
+dayOfYear = list(range(1,366))
+hrsInDay = list(range(0,24))
+irr_0n, delta, pwr_output = [],[],[]
+
+# Calculates daily extraterrestial irradiance G0n and declination angle
+# and appends that value to a list in order to determine hourly array power
+for day in dayOfYear:
+    # Calculation for extraterrestrial irradiance on a plane normal
+    # to radiation
+    value = 1+0.033*math.cos(2*math.pi*(day/365))
+    irr_0n.append(solarConstant*value)
+
+    # Calculation for effect of declination angle
+    delta.append(delta0*math.sin(math.radians((360*(284+day)/365))))
+    
+    # Calculates hourly array output and appends it to a list
+    for hr in hrsInDay:
+        # Calculation to determine correct longitude of the meridian defining
+        # the local time based on day of the year and day light savings time
+        if day >= 73 and day <= 311:
+            lambdaZone =  (timezoneUTC-1)*15
+        else:
+            lambdaZone = timezoneUTC*15
+            
+        # Calculation for effect of hour angle
+        if hr == solarNoon:
+            omega = 15*(hr-12)
+        else:
+            omega = 15*(hr-12+0.5)+(lambdaLong-lambdaZone)
+
+        # Calculation for zenith angle
+        if omega == 0:
+            zenithAngle = phi-delta[-1]
+        else:
+            zeta1 = math.sin(math.radians(delta[-1]))*math.sin(math.radians(phi))
+            zeta2 = math.cos(math.radians(delta[-1]))*math.cos(math.radians(phi))*math.cos(math.radians(omega))
+            zArcosine = math.acos(zeta1+zeta2)
+            zenithAngle = math.degrees(zArcosine)
+
+        # Calculation for angle of incidence based on components
+        val1 = math.sin(math.radians(delta[-1]))*math.sin(math.radians(phi))*math.cos(math.radians(beta))
+        val2 = math.sin(math.radians(delta[-1]))*math.cos(math.radians(phi))*math.sin(math.radians(beta))
+        val3 = math.cos(math.radians(delta[-1]))*math.cos(math.radians(phi))*math.cos(math.radians(beta))*math.cos(math.radians(omega))
+        val4 = math.cos(math.radians(delta[-1]))*math.sin(math.radians(phi))*math.sin(math.radians(beta))*math.cos(math.radians(omega))
+        theta = val1-val2+val3+val4
+        cosTheta = math.acos(theta)
+
+        # Calculation for angle of incidence
+        incidenceAngle = math.degrees(cosTheta)
+
+        # Calculation for irradiance on a surface without the atmosphere
+        irr_G0 = irr_0n[-1]*math.cos(math.radians(zenithAngle))
+        
+        # Calculation for clearness index
+        kT = hourly_GHI[count]/irr_G0
+        kT = max(kT,0)
+        kT = min(kT,1)
+        
+        # Calculation for beam and diffuse component of GHI
+        irr_Diffuse = (1-1.13*kT)*hourly_GHI[count]
+        irr_Beam = hourly_GHI[count]-irr_Diffuse
+
+        # Calculation for coefficient Rb
+        coeffRb = math.cos(math.radians(incidenceAngle))/math.cos(math.radians(zenithAngle))
+        coeffRb = min(coeffRb,20)
+
+        # Calculation for beam irradiance on tilted surface
+        # if component is negative, set to 0
+        irr_bt = irr_Beam*coeffRb
+        if irr_bt < 0:
+            irr_bt = 0
+
+        # Calculation for diffuse irradiance on tilted surface
+        # if component is negative, set to 0
+        irr_dt = 0.5*irr_Diffuse*(1+math.cos(math.radians(beta)))
+        if irr_dt < 0:
+            irr_dt = 0
+
+        # Calculation for ground reflected irradiance on the tilted surface
+        # if component is negative, set to 0
+        irr_gndT = 0.5*surf_Albedo[count]*hourly_GHI[count]*(1-math.cos(math.radians(beta)))
+        if irr_gndT < 0:
+            irr_gndT = 0
+
+        # Calculation for total irradiance on a tilted surface
+        irr_Total = irr_bt+irr_dt+irr_gndT
+
+        # Calculation for module temperature
+        modTemp = amb_Temp[count]+((modNOCT-20)*(irr_Total/800))
+
+        # Calculation for array maximum power
+        val3 = 1+((pwrCoeff/100)*(modTemp-25))
+        singleModPwr = modPwrR*(irr_Total/1000)*val3
+        arrayMaxPwr = (singleModPwr*numPVmodules*numStrings)/1000.0
+        #print('hr = ' + str(hr) + ' , arrayMaxPwr = ' + str(arrayMaxPwr))
+        
+        # Append hourly power generated value to list
+        pwr_output.append(arrayMaxPwr)
+        count += 1
+
+# Calculates actual annual energy produced and capacity factor. Prints values
+# to the user.
+E_actual = sum(pwr_output)
+capacityFactor = (E_actual/E_theory)*100.0
+print('Total Energy Produced: {0:.2f} kWh'.format(E_actual))
+print('Capacity Factor: {0:.2f} %'.format(capacityFactor))
+
+# Plot first 10 days in January data
+janPwrData = pwr_output[:240]
+janPwrData = [1000*x for x in janPwrData]
+plot1 = plt.figure(1)
+plt.plot(janPwrData, c='blue')
+plt.title('Jan 01 - Jan 10', fontsize=18)
+plt.ylabel('DC inverter input power (W)', fontsize=10)
+plt.xlim(0,240)
+plt.ylim(0,20000)
+xpositions = (12, 36, 60, 84, 108, 132, 156, 180, 204, 228)
+xlabels = ('Jan 01', 'Jan 02', 'Jan 03', 'Jan 04', 'Jan 05', 'Jan 06', 'Jan 07', 'Jan 08', 'Jan 09', 'Jan 10')
+plt.xticks(xpositions, xlabels)
+ypositions = (0, 2000, 4000, 6000, 8000, 10000, 12000, 14000, 16000, 18000, 20000)
+ylabels = ('0', '2000', '4000', '6000', '8000', '10000', '12000', '14000', '16000', '18000', '20000')
+plt.yticks(ypositions, ylabels)
+plt.grid()
+
+# Plot first 10 days in July data
+julyPwrData = pwr_output[4344:4584]
+julyPwrData = [1000*x for x in julyPwrData]
+plot2 = plt.figure(2)
+plt.plot(julyPwrData, c='blue')
+plt.title('July 01 - July 10', fontsize=18)
+plt.ylabel('DC inverter input power (W)', fontsize=10)
+plt.xlim(0,240)
+plt.ylim(0,20000)
+positions = (12, 36, 60, 84, 108, 132, 156, 180, 204, 228)
+labels = ('Jul 01', 'Jul 02', 'Jul 03', 'Jul 04', 'Jul 05', 'Jul 06', 'Jul 07', 'Jul 08', 'Jul 09', 'Jul 10')
+plt.xticks(positions, labels)
+ypositions = (0, 2000, 4000, 6000, 8000, 10000, 12000, 14000, 16000, 18000, 20000)
+ylabels = ('0', '2000', '4000', '6000', '8000', '10000', '12000', '14000', '16000', '18000', '20000')
+plt.yticks(ypositions, ylabels)
+plt.grid()
+
+plt.show()
