@@ -1,0 +1,113 @@
+# Joshua Carbajal
+# 4/11/2021
+# Modeling Mini-Project Part 1
+# Purpose: Basic Extraterrestrial Solar Irradiance Calculator
+
+import math
+
+# Calculates day of year if not known by user
+def dayCalculator(month, dayofMonth):
+    if month.lower() == 'january':
+        d = 0+dayofMonth
+    elif month.lower() == 'february':
+        d = 31+dayofMonth
+    elif month.lower() == 'march':
+        d = 59+dayofMonth
+    elif month.lower() == 'april':
+        d = 90+dayofMonth
+    elif month.lower() == 'may':
+        d = 120+dayofMonth
+    elif month.lower() == 'june':
+        d = 151+dayofMonth
+    elif month.lower() == 'july':
+        d = 181+dayofMonth
+    elif month.lower() == 'august':
+        d = 212+dayofMonth
+    elif month.lower() == 'september':
+        d = 243+dayofMonth
+    elif month.lower() == 'october':
+        d = 273+dayofMonth
+    elif month.lower() == 'november':
+        d = 304+dayofMonth
+    else:
+        d = 334+dayofMonth
+    return d
+
+#--------main-------
+solarConstant = 1367
+delta0 = 23.45
+solarNoon = 12
+
+# Ask user for input for various parameters
+phi = input('location latitude: ')
+phi = int(phi)
+lambdaLong = input('location longitude: ')
+lambdaLong = int(lambdaLong)
+beta = input('PV array tilt: ')
+beta = int(beta)
+answer = input('Is the day of year known? (y/n): ')
+if answer == 'y':
+    dayOfYear = input('day of year: ')
+    dayOfYear = int(dayOfYear)
+else:
+    month = input('Input month: ')
+    dayofMonth = input('Input day of the month: ')
+    dayofMonth = int(dayofMonth)
+    dayOfYear = dayCalculator(month, dayofMonth)   
+civilTime = input('civil time of day, in hours: ')
+civilTime = int(civilTime)
+timezoneUTC = input('time zone in reference to UTC: ')
+timezoneUTC = int(timezoneUTC)
+print()
+
+# Calculation for extraterrestrial irradiance on a plane normal
+# to radiation
+value = 1+0.033*math.cos(2*math.pi*((dayOfYear)/365))
+irradiance0n = solarConstant*value
+print('Extraterrestrial irradiance on plane normal to sun, G0n: {0:.2f} W/m^2 '.format(irradiance0n))
+
+# Calculation for effect of declination angle
+delta = delta0*math.sin(math.radians((360*(284+dayOfYear)/365)))
+print('Declination angle, (degrees): {0:.2f} degrees'.format(delta))
+
+# Calculation to determine correct longitude of the meridian defining
+# the local time based on day of the year and day light savings time
+if dayOfYear >= 73 and dayOfYear <= 311:
+    lambdaZone =  (timezoneUTC-1)*15
+else:
+    lambdaZone = timezoneUTC*15
+    
+# Calculation for effect of hour angle
+if civilTime == solarNoon:
+    omega = 15*(civilTime-12)
+else:
+    omega = 15*(civilTime-12)+(lambdaLong-lambdaZone)
+print('Hour angle, (degrees): {:.0f} degrees'.format(omega))
+
+# Calculation for zenith angle
+if omega == 0:
+    zenithAngle = phi-delta
+else:
+    zeta1 = math.sin(math.radians(delta))*math.sin(math.radians(phi))
+    zeta2 = math.cos(math.radians(delta))*math.cos(math.radians(phi))*math.cos(math.radians(omega))
+    zArcosine = math.acos(zeta1+zeta2)
+    zenithAngle = math.degrees(zArcosine)
+print('Zenith angle, (degrees): {0:.2f} degrees'.format(zenithAngle))
+
+# Calculation for angle of incidence based on components
+val1 = math.sin(math.radians(delta))*math.sin(math.radians(phi))*math.cos(math.radians(beta))
+val2 = math.sin(math.radians(delta))*math.cos(math.radians(phi))*math.sin(math.radians(beta))
+val3 = math.cos(math.radians(delta))*math.cos(math.radians(phi))*math.cos(math.radians(beta))*math.cos(math.radians(omega))
+val4 = math.cos(math.radians(delta))*math.sin(math.radians(phi))*math.sin(math.radians(beta))*math.cos(math.radians(omega))
+theta = val1-val2+val3+val4
+cosTheta = math.acos(theta)
+
+# Calculation for angle of incidence
+incidenceAngle = math.degrees(cosTheta)
+print('Angle of incidence, (degrees): {0:.2f} degrees'.format(incidenceAngle))
+
+print('Cosine of the angle of incidence: {0:.2f}'.format(theta))
+
+# Calculation for total irradiance on a surface
+irradiance0T = irradiance0n*theta
+print('Irradiance on the PV array ignoring the effects of the atmosphere, G0T: {0:.2f} W/m^2'.format(irradiance0T))
